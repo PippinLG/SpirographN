@@ -337,6 +337,11 @@ var sgn = (function(settings) {
 		e.className = "divSeparator";
 		settings.sidebarDiv.appendChild(e);
 
+		svgButton();
+
+		e = document.createElement("DIV");
+		e.className = "divSeparator";
+		settings.sidebarDiv.appendChild(e);
 
 		//load canvas
 		setValues();
@@ -652,6 +657,109 @@ var sgn = (function(settings) {
 		});
 	}
 
+	function svgButton() {
+        var button = makeButton("svgButton", false, "save as SVG", false);
+        button.setAttribute("style", "width:100%");
+
+        // Optional: reuse an existing icon or skip entirely
+        // var image = makeImage("svgIcon", "svg", "img/gh.png");
+
+        var span = makeSpan("svgLabel", "buttonText", "save to SVG");;
+
+        // If you want NO icon, just use the span:
+        // button.appendChild(image);
+        button.appendChild(span);
+
+        settings.sidebarDiv.appendChild(button);
+
+        button.addEventListener("click", function() {
+			exportSVG();
+        }); 
+    }
+
+	function exportSVG() {
+    	if (!settings.svgPaths) {
+	        settings.svgPaths = [{
+    	        color: settings.curveColor || "black",
+        	    width: parseFloat(settings.curveWidth) + 0.001,
+	            points: settings.svgPoints || []
+    	    }];
+	    }
+
+    	var allPoints = [];
+
+    	settings.svgPaths.forEach(function(svgPath) {
+        	svgPath.points.forEach(function(p) {
+            	if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+                	allPoints.push(p);
+        	    }
+        	});
+    	});
+
+    	if (allPoints.length < 2) {
+        	alert("No valid SVG points found. Draw a curve first, then save to SVG.");
+        	return;
+    	}
+
+    	var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    	allPoints.forEach(function(p) {
+        	minX = Math.min(minX, p.x);
+        	minY = Math.min(minY, p.y);
+        	maxX = Math.max(maxX, p.x);
+        	maxY = Math.max(maxY, p.y);
+    	});
+
+    	var padding = 20;
+    	var viewX = minX - padding;
+    	var viewY = minY - padding;
+    	var viewW = (maxX - minX) + padding * 2;
+    	var viewH = (maxY - minY) + padding * 2;
+
+    	var pathElements = settings.svgPaths.map(function(svgPath) {
+        	var cleanPoints = svgPath.points.filter(function(p) {
+            	return Number.isFinite(p.x) && Number.isFinite(p.y);
+        	});
+
+        	if (cleanPoints.length < 2) {
+            	return "";
+        	}
+
+        	var pathData = cleanPoints.map(function(p, i) {
+            	return (i === 0 ? "M" : "L") + " " +
+               		p.x.toFixed(2) + " " +
+                	p.y.toFixed(2);
+        	}).join(" ");
+
+        	return '<path d="' + pathData + '" ' +
+            	'fill="none" ' +
+        	    'stroke="' + svgPath.color + '" ' +
+        	    'stroke-width="' + svgPath.width + '" ' +
+        	    'stroke-linecap="round" ' +
+        	    'stroke-linejoin="round"/>';
+    	}).join("");
+
+    	var svg =
+        	'<svg xmlns="http://www.w3.org/2000/svg" ' +
+    	    'width="' + viewW + '" height="' + viewH + '" ' +
+    	    'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
+        	'<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>' +
+        	pathElements +
+        	'</svg>';
+
+    	var blob = new Blob([svg], { type: "image/svg+xml" });
+    	var url = URL.createObjectURL(blob);
+
+    	var a = document.createElement("a");
+    	a.href = url;
+    	a.download = "spirograph.svg";
+    	document.body.appendChild(a);
+    	a.click();
+    	document.body.removeChild(a);
+
+    	URL.revokeObjectURL(url);
+	}
+	
 	// private functions
 
 	function loadValues(d) {
@@ -1093,7 +1201,29 @@ var sgn = (function(settings) {
 			//circle for pen Point
 			drawOneCircle(settings.canvasCircles, penPt.x, penPt.y, 1, true);
 		}
+        
+		if (!settings.svgPaths) {
+			settings.svgPaths = [];
+		}
 
+		if (!settings.svgPoints || settings.i === 0) {
+
+			var newPath = {
+				color: settings.curveColor || "black",
+				width: parseFloat(settings.curveWidth) + 0.001,
+				points: []
+			};
+
+			settings.svgPaths.push(newPath);
+			settings.svgPoints = newPath.points;
+
+		}
+
+		settings.svgPoints.push({
+			x: penPt.x,
+			y: penPt.y
+		});
+		
 		//update curve points for drawCurve()
 		//only maintain previous point, so we'll always plot previous to current.
 		settings.curvePoints.push(penPt);
@@ -1118,7 +1248,7 @@ var sgn = (function(settings) {
 		ctx.stroke();
 		ctx.closePath();
 		ctx.strokeStyle = currentColor;
-		ctx.strokeStyle = currentWidth;
+		ctx.lineWidth = currentWidth;
 	}
 
 	function drawCurve() {
@@ -1321,6 +1451,17 @@ var sgn = (function(settings) {
 
 	function restart() {
 		settings.i = 0;
+		if (!settings.svgPaths) {
+    		settings.svgPaths = [];
+		}
+
+		settings.svgPaths.push({
+    		color: settings.curveColor || "black",
+    		width: parseFloat(settings.curveWidth) + 0.001,
+    		points: []
+		});
+
+		settings.svgPoints = settings.svgPaths[settings.svgPaths.length - 1].points;
 		setValues();
 		drawCircles();
 	}
@@ -2032,3 +2173,4 @@ var sgn = (function(settings) {
 		}, ]
 	}
 );
+
