@@ -343,6 +343,20 @@ var sgn = (function(settings) {
 		e.className = "divSeparator";
 		settings.sidebarDiv.appendChild(e);
 
+		svgTransparentButton();
+
+		e = document.createElement("DIV");
+		e.className = "divSeparator";
+		settings.sidebarDiv.appendChild(e);
+
+		completeSVGButton();
+
+		e = document.createElement("DIV");
+		e.className = "divSeparator";
+		settings.sidebarDiv.appendChild(e);
+
+		svgExportStepsInput();
+
 		//load canvas
 		setValues();
 
@@ -673,9 +687,62 @@ var sgn = (function(settings) {
         settings.sidebarDiv.appendChild(button);
 
         button.addEventListener("click", function() {
+			var points = generateCompleteCurrentCurve();
+   			alert("Generated " + points.length + " points.");
 			exportSVG();
         }); 
     }
+
+	function completeSVGButton() {
+		var button = makeButton("completeSVGButton", false, "Save Hi-Res SVG", false);
+		button.setAttribute("style", "width:100%");
+
+		var span = makeSpan("completeSVGLabel", "buttonText", "save complete SVG");
+		button.appendChild(span);
+
+		settings.sidebarDiv.appendChild(button);
+
+		button.addEventListener("click", function() {
+			exportCompleteSVG();
+		});
+	}
+
+	function svgExportStepsInput() {
+		var label = makeSpan("svgExportStepsLabel", "label", "SVG export steps");
+		settings.sidebarDiv.appendChild(label);
+
+		var input = document.createElement("input");
+		input.type = "number";
+		input.id = "svgExportSteps";
+		input.value = settings.svgExportSteps || 200000;
+		input.min = 1000;
+		input.step = 10000;
+		input.setAttribute("style", "width:100%");
+
+		input.addEventListener("change", function() {
+			settings.svgExportSteps = parseInt(input.value, 10) || 200000;
+		});
+
+		settings.sidebarDiv.appendChild(input);
+	}
+
+
+	function svgTransparentButton() {
+		var button = makeButton("svgTransparentButton", false, "save transparent SVG", false);
+		button.setAttribute("style", "width:100%");
+
+		var span = makeSpan("svgTransparentLabel", "buttonText", "save transparent SVG");
+		button.appendChild(span);
+
+		settings.sidebarDiv.appendChild(button);
+
+		button.addEventListener("click", function() {
+			settings.svgWhiteBackground = false;
+			exportSVG();
+			settings.svgWhiteBackground = true;
+		});
+	}
+
 
 	function exportSVG() {
     	if (!settings.svgPaths) {
@@ -685,7 +752,9 @@ var sgn = (function(settings) {
 	            points: settings.svgPoints || []
     	    }];
 	    }
-
+		if (settings.svgWhiteBackground === undefined) {
+			settings.svgWhiteBackground = true;
+		}
     	var allPoints = [];
 
     	settings.svgPaths.forEach(function(svgPath) {
@@ -716,7 +785,7 @@ var sgn = (function(settings) {
     	var viewW = (maxX - minX) + padding * 2;
     	var viewH = (maxY - minY) + padding * 2;
 
-    	var pathElements = settings.svgPaths.map(function(svgPath) {
+    	var pathElements = settings.svgPaths.map(function(svgPath, index) {
         	var cleanPoints = svgPath.points.filter(function(p) {
             	return Number.isFinite(p.x) && Number.isFinite(p.y);
         	});
@@ -731,20 +800,26 @@ var sgn = (function(settings) {
                 	p.y.toFixed(2);
         	}).join(" ");
 
-        	return '<path d="' + pathData + '" ' +
-            	'fill="none" ' +
-        	    'stroke="' + svgPath.color + '" ' +
-        	    'stroke-width="' + svgPath.width + '" ' +
-        	    'stroke-linecap="round" ' +
-        	    'stroke-linejoin="round"/>';
+			return '<g id="curve-' + index + '">' +
+				'<path d="' + pathData + '" ' +
+				'fill="none" ' +
+				'stroke="' + svgPath.color + '" ' +
+				'stroke-width="' + svgPath.width + '" ' +
+				'stroke-linecap="round" ' +
+				'stroke-linejoin="round"/>' +
+				'</g>';
     	}).join("");
+
+		var backgroundElement = settings.svgWhiteBackground
+    		? '<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>'
+    		: '';
 
     	var svg =
         	'<svg xmlns="http://www.w3.org/2000/svg" ' +
     	    'width="' + viewW + '" height="' + viewH + '" ' +
     	    'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
-        	'<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>' +
-        	pathElements +
+        	backgroundElement +
+			pathElements +
         	'</svg>';
 
     	var blob = new Blob([svg], { type: "image/svg+xml" });
@@ -760,6 +835,63 @@ var sgn = (function(settings) {
     	URL.revokeObjectURL(url);
 	}
 	
+	function exportCompleteSVG() {
+
+		var steps = settings.svgExportSteps || 200000;
+		var completePoints = generateCompleteCurrentCurve(steps);
+
+		if (!completePoints || completePoints.length < 2) {
+			alert("No valid points generated.");
+			return;
+		}
+
+		var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+		completePoints.forEach(function(p) {
+			minX = Math.min(minX, p.x);
+			minY = Math.min(minY, p.y);
+			maxX = Math.max(maxX, p.x);
+			maxY = Math.max(maxY, p.y);
+		});
+
+		var padding = 20;
+		var viewX = minX - padding;
+		var viewY = minY - padding;
+		var viewW = (maxX - minX) + padding * 2;
+		var viewH = (maxY - minY) + padding * 2;
+
+		var pathData = completePoints.map(function(p, i) {
+			return (i === 0 ? "M" : "L") + " " +
+				p.x.toFixed(2) + " " +
+				p.y.toFixed(2);
+		}).join(" ");
+
+		var svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" ' +
+			'width="' + viewW + '" height="' + viewH + '" ' +
+			'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
+			'<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>' +
+			'<path d="' + pathData + '" ' +
+			'fill="none" ' +
+			'stroke="' + (settings.curveColor || "black") + '" ' +
+			'stroke-width="' + (parseFloat(settings.curveWidth) + 0.001) + '" ' +
+			'stroke-linecap="round" ' +
+			'stroke-linejoin="round"/>' +
+			'</svg>';
+
+		var blob = new Blob([svg], { type: "image/svg+xml" });
+		var url = URL.createObjectURL(blob);
+
+		var a = document.createElement("a");
+		a.href = url;
+		a.download = "spirograph-complete.svg";
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+
+		URL.revokeObjectURL(url);
+	}
+
 	// private functions
 
 	function loadValues(d) {
@@ -1081,6 +1213,85 @@ var sgn = (function(settings) {
 		}
 	}
 
+	function computePenPoint(i) {
+		var c = 1;
+
+		var thisRad = 0;
+		var prevRad = 0;
+		var centerRad = 0;
+		var prevPitch = 0;
+		var prevSpinPitch = 0;
+		var prevDrawPitch = 0;
+		var penPitch = 0;
+
+		var zoom = settings.currentZoom;
+
+		var pt = {
+			x: settings.a,
+			y: settings.b
+		};
+
+		while (c < settings.radii.length) {
+			thisRad = Number(settings.radii[c]) * zoom;
+			prevRad = Number(settings.radii[c - 1]) * zoom;
+
+			if (settings.types[c] === "h") {
+				centerRad = prevRad - thisRad;
+			} else {
+				centerRad = prevRad + thisRad;
+			}
+
+			if (c > 1) {
+				prevPitch = prevPitch + settings.pitches[c - 2];
+				prevSpinPitch = prevSpinPitch + settings.spinPitches[c - 2];
+				prevDrawPitch = prevDrawPitch + settings.drawPitches[c - 2];
+			} else {
+				prevPitch = 0;
+				prevSpinPitch = 0;
+				prevDrawPitch = 0;
+			}
+
+			var mult = settings.directions[c];
+
+			var thisPitch = (settings.drawPitches[c - 1] + prevDrawPitch) * mult;
+
+			if (settings.types[c] === "h") {
+				penPitch = (settings.spinPitches[c - 1] + prevSpinPitch) * mult * -1;
+			} else {
+				penPitch = (settings.spinPitches[c - 1] + prevSpinPitch) * mult;
+			}
+
+			pt = circlePoint(pt.x, pt.y, centerRad, i * thisPitch);
+
+			c++;
+		}
+
+		return circlePoint(pt.x, pt.y, settings.penRad * zoom, i * penPitch);
+	}
+
+function generateCompleteCurrentCurve(maxIterations) {
+    var points = [];
+    var i = 0;
+	var exportIterator = settings.iterator / 4;
+
+    maxIterations = maxIterations || 500000;
+
+    for (var n = 0; n < maxIterations; n++) {
+        var p = computePenPoint(i);
+
+        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            points.push({
+                x: p.x,
+                y: p.y
+            });
+        }
+
+        i = i + exportIterator;;
+    }
+
+    return points;
+}
+
 	function drawCircles() {
 
 		var c = 1;
@@ -1180,7 +1391,8 @@ var sgn = (function(settings) {
 
 		//draw Pen
 		//pen pitch set in last circle iteration
-		var penPt = circlePoint(pt.x, pt.y, settings.penRad * zoom, i * penPitch);
+
+		var penPt = computePenPoint(i);
 
 		//mark our starting point
 		if (settings.i === 0) {
