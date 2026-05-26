@@ -566,7 +566,7 @@ var sgn = (function(settings) {
 		settings.sidebarDiv.appendChild(button);
 		button.addEventListener("click", clearCanvas);
 	}
-
+h
 	function restartButton() {
 		var button = makeButton(settings.idNames.restart, false, "reset pen to beginning position", false);
 		var image = makeImage(settings.idNames.clearIcon, "edit", "img/restart.png");
@@ -675,20 +675,13 @@ var sgn = (function(settings) {
         var button = makeButton("svgButton", false, "save as SVG", false);
         button.setAttribute("style", "width:100%");
 
-        // Optional: reuse an existing icon or skip entirely
-        // var image = makeImage("svgIcon", "svg", "img/gh.png");
+        var span = makeSpan("svgLabel", "buttonText", "save to SVG");
 
-        var span = makeSpan("svgLabel", "buttonText", "save to SVG");;
-
-        // If you want NO icon, just use the span:
-        // button.appendChild(image);
         button.appendChild(span);
 
         settings.sidebarDiv.appendChild(button);
 
         button.addEventListener("click", function() {
-			var points = generateCompleteCurrentCurve();
-   			alert("Generated " + points.length + " points.");
 			exportSVG();
         }); 
     }
@@ -743,7 +736,121 @@ var sgn = (function(settings) {
 		});
 	}
 
+	function xmlEscape(str) {
+		return String(str)
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&apos;");
+	}
 
+	function buildExportMetadata(exportMode, extraData) {
+
+		var selectedPresetName = null;
+		var selectedPresetIndex = null;
+		var selectedPresetPosition = null;
+
+		var presetSelect = document.getElementById(settings.idNames.presets);
+
+		if (presetSelect) {
+			selectedPresetName = presetSelect.value;
+
+			if (settings.presets && settings.presets.length) {
+				for (var p = 0; p < settings.presets.length; p++) {
+					if (settings.presets[p].name === selectedPresetName) {
+						selectedPresetIndex = p;
+						selectedPresetPosition = p + 1;
+						break;
+					}
+				}
+			}
+		}
+
+		var pathSummaries = [];
+
+		if (settings.svgPaths && settings.svgPaths.length) {
+			pathSummaries = settings.svgPaths
+				.filter(function(svgPath) {
+					return svgPath.points && svgPath.points.length > 1;
+				})
+				.map(function(svgPath, index) {
+					return {
+						index: index,
+						color: svgPath.color,
+						width: svgPath.width,
+						pointCount: svgPath.points.length
+					};
+				});
+		}
+
+		var metadata = {
+			app: "SpirographN modified",
+			exportedAt: new Date().toISOString(),
+			exportMode: exportMode,
+
+			selectedPresetName: selectedPresetName,
+			selectedPresetIndex: selectedPresetIndex,
+			selectedPresetPosition: selectedPresetPosition,
+
+			// core geometry/settings
+			a: settings.a,
+			b: settings.b,
+			currentZoom: settings.currentZoom,
+			iterator: settings.iterator,
+			speed: settings.speed,
+
+			// drawing parameters
+			radii: settings.radii,
+			types: settings.types,
+			directions: settings.directions,
+			pitches: settings.pitches,
+			spinPitches: settings.spinPitches,
+			drawPitches: settings.drawPitches,
+			penRad: settings.penRad,
+
+			// style settings
+			curveColor: settings.curveColor,
+			curveWidth: settings.curveWidth,
+			circleColor: settings.circleColor,
+			circleStroke: settings.circleStroke,
+
+			// export settings
+			svgExportSteps: settings.svgExportSteps,
+			svgWhiteBackground: settings.svgWhiteBackground,
+
+			// summary of stored curves
+			curveCount: pathSummaries.length,
+			curveSummaries: pathSummaries
+		};
+
+		if (extraData) {
+			metadata.extra = extraData;
+		}
+
+		return metadata;
+	}
+
+	function buildMetadataElement(metadataObject) {
+		var jsonText = JSON.stringify(metadataObject, null, 2);
+
+		return '<metadata id="spirograph-metadata">' +
+			xmlEscape(jsonText) +
+			'</metadata>';
+	}
+
+	function buildMetadataComment(metadataObject) {
+		var jsonText = JSON.stringify(metadataObject, null, 2);
+
+		// XML comments cannot contain "--", so remove any accidental double hyphens.
+		jsonText = jsonText.replace(/--/g, "—");
+
+		return '\n<!--\n' +
+			'SpirographN Export Metadata\n' +
+			'This comment is included so the drawing parameters are easy to find in a text editor.\n\n' +
+			jsonText +
+			'\n-->\n';
+	}
 	function exportSVG() {
     	if (!settings.svgPaths) {
 	        settings.svgPaths = [{
@@ -794,11 +901,11 @@ var sgn = (function(settings) {
             	return "";
         	}
 
-        	var pathData = cleanPoints.map(function(p, i) {
-            	return (i === 0 ? "M" : "L") + " " +
-               		p.x.toFixed(2) + " " +
-                	p.y.toFixed(2);
-        	}).join(" ");
+			var pathData = cleanPoints.map(function(p, i) {
+				return (i === 0 ? "M" : "L") + " " +
+					p.x.toFixed(2) + " " +
+					p.y.toFixed(2);
+			}).join(" ");
 
 			return '<g id="curve-' + index + '">' +
 				'<path d="' + pathData + '" ' +
@@ -808,19 +915,34 @@ var sgn = (function(settings) {
 				'stroke-linecap="round" ' +
 				'stroke-linejoin="round"/>' +
 				'</g>';
-    	}).join("");
+		}).join("");
+
+		var metadata = buildExportMetadata("svg", {
+			exportedPathType: "stored animated paths",
+			viewBox: {
+				x: viewX,
+				y: viewY,
+				width: viewW,
+				height: viewH
+			}
+		});
+
+		var metadataElement = buildMetadataElement(metadata);
+		var metadataComment = buildMetadataComment(metadata);
 
 		var backgroundElement = settings.svgWhiteBackground
     		? '<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>'
     		: '';
 
-    	var svg =
-        	'<svg xmlns="http://www.w3.org/2000/svg" ' +
-    	    'width="' + viewW + '" height="' + viewH + '" ' +
-    	    'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
-        	backgroundElement +
+		var svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" ' +
+			'width="' + viewW + '" height="' + viewH + '" ' +
+			'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
+			metadataElement +
+			metadataComment +
+			backgroundElement +
 			pathElements +
-        	'</svg>';
+			'</svg>';
 
     	var blob = new Blob([svg], { type: "image/svg+xml" });
     	var url = URL.createObjectURL(blob);
@@ -866,10 +988,26 @@ var sgn = (function(settings) {
 				p.y.toFixed(2);
 		}).join(" ");
 
+		var metadata = buildExportMetadata("high-res-svg", {
+			exportedPathType: "offline generated curve",
+			generatedPointCount: completePoints.length,
+			viewBox: {
+				x: viewX,
+				y: viewY,
+				width: viewW,
+				height: viewH
+			}
+		});
+
+		var metadataElement = buildMetadataElement(metadata);
+		var metadataComment = buildMetadataComment(metadata);
+
 		var svg =
 			'<svg xmlns="http://www.w3.org/2000/svg" ' +
 			'width="' + viewW + '" height="' + viewH + '" ' +
 			'viewBox="' + viewX + ' ' + viewY + ' ' + viewW + ' ' + viewH + '">' +
+			metadataElement +
+			metadataComment +
 			'<rect x="' + viewX + '" y="' + viewY + '" width="' + viewW + '" height="' + viewH + '" fill="white"/>' +
 			'<path d="' + pathData + '" ' +
 			'fill="none" ' +
@@ -1269,28 +1407,28 @@ var sgn = (function(settings) {
 		return circlePoint(pt.x, pt.y, settings.penRad * zoom, i * penPitch);
 	}
 
-function generateCompleteCurrentCurve(maxIterations) {
-    var points = [];
-    var i = 0;
-	var exportIterator = settings.iterator / 4;
+	function generateCompleteCurrentCurve(maxIterations) {
+		var points = [];
+		var i = 0;
+		var exportIterator = settings.iterator / 4;
 
-    maxIterations = maxIterations || 500000;
+		maxIterations = maxIterations || 500000;
 
-    for (var n = 0; n < maxIterations; n++) {
-        var p = computePenPoint(i);
+		for (var n = 0; n < maxIterations; n++) {
+			var p = computePenPoint(i);
 
-        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
-            points.push({
-                x: p.x,
-                y: p.y
-            });
-        }
+			if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+				points.push({
+					x: p.x,
+					y: p.y
+				});
+			}
 
-        i = i + exportIterator;;
-    }
+			i = i + exportIterator;;
+		}
 
-    return points;
-}
+		return points;
+	}
 
 	function drawCircles() {
 
@@ -1418,7 +1556,7 @@ function generateCompleteCurrentCurve(maxIterations) {
 			settings.svgPaths = [];
 		}
 
-		if (!settings.svgPoints || settings.i === 0) {
+		if (!settings.svgPoints || (settings.i === 0 && settings.svgPoints.length > 1)) {
 
 			var newPath = {
 				color: settings.curveColor || "black",
@@ -1654,6 +1792,8 @@ function generateCompleteCurrentCurve(maxIterations) {
 		var ctx = settings.canvasPen.getContext("2d");
 		ctx.clearRect(0, 0, settings.canvasPen.width, settings.canvasPen.height);
 
+		clearSVGMemory();
+
 		//restore Zoom
 		if (z) {
 			zoomTempRestore()
@@ -1661,19 +1801,28 @@ function generateCompleteCurrentCurve(maxIterations) {
 		settings.drawing = false;
 	}
 
-	function restart() {
-		settings.i = 0;
+	function clearSVGMemory() {
+		settings.svgPaths = [];
+		settings.svgPoints = null;
+	}
+
+	function startNewSVGPath() {
 		if (!settings.svgPaths) {
-    		settings.svgPaths = [];
+			settings.svgPaths = [];
 		}
 
 		settings.svgPaths.push({
-    		color: settings.curveColor || "black",
-    		width: parseFloat(settings.curveWidth) + 0.001,
-    		points: []
+			color: settings.curveColor || "black",
+			width: parseFloat(settings.curveWidth) + 0.001,
+			points: []
 		});
 
 		settings.svgPoints = settings.svgPaths[settings.svgPaths.length - 1].points;
+	}
+
+	function restart() {
+		settings.i = 0;
+		startNewSVGPath();
 		setValues();
 		drawCircles();
 	}
